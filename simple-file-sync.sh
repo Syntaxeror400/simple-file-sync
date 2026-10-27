@@ -21,6 +21,10 @@ print_options() {
 	exit 0
 }
 
+# Defining filenames to flag wheter we did someting
+FILE_DID_COPY=".simple-file-sync-copied-file"
+FILE_DID_REMOVE=".simple-file-sync-removed-file"
+
 ################################################################################
 # Option parsing
 OPTS=$(getopt -o hvq --long help,verbose,quiet -n'simple-file-sync' -- "$@")
@@ -128,7 +132,6 @@ fi
 if [ "$QUIET" = false ]; then
 	echo -e "\n"Copying missing files from $SOURCE_DIR to $DEST_DIR
 fi
-DID_SOMETHING=false
 find $SOURCE_DIR -type f | while read SRC_F
 do
 	DEST_F=${DEST_DIR}${SRC_F:${#SOURCE_DIR}}
@@ -139,18 +142,22 @@ do
 		fi
 		mkdir -p "$(dirname "$DEST_F")"
 		cp "$SRC_F" "$DEST_F"
-		DID_SOMETHING=true
+		touch $FILE_DID_COPY
 	fi
 done
-if [ "$DID_SOMETHING" = false ] && [ "$QUIET" = false ] ; then
-	echo "Already up to date, nothing to copy."
+if [ ! -f $FILE_DID_COPY ]
+then
+	if [ "$QUIET" = false ] ; then
+		echo "Already up to date, nothing to copy."
+	fi
+else
+	rm $FILE_DID_COPY
 fi
 
 # Removing files that are not in the source
 if [ "$QUIET" = false ] ; then
 	echo -e "\n"Removing files that are only in $DEST_DIR
 fi
-DID_SOMETHING=false
 find $DEST_DIR -type f | while read DEST_F
 do
 	SRC_F=${SOURCE_DIR}${DEST_F:${#DEST_DIR}}
@@ -160,11 +167,16 @@ do
 			echo -e "\t"- "$DEST_F"
 		fi
 		rm "$DEST_F"
-		DID_SOMETHING=true
+		touch $FILE_DID_REMOVE
 	fi
 done
-if [ "$DID_SOMETHING" = false ] && [ "$QUIET" = false ] ; then
-	echo "Already up to date, nothing to delete."
+if [ ! -f $FILE_DID_REMOVE ]
+then
+	if [ "$QUIET" = false ] ; then
+		echo "Already up to date, nothing to delete."
+	fi
+else
+	rm $FILE_DID_COPY
 fi
 
 
@@ -174,3 +186,6 @@ if [ "$QUIET" = false ] ; then
 fi
 find $DEST_DIR/* -type d -empty -delete
 
+if [ "$QUIET" = false ] ; then
+	echo -e "\n"All done, files are now synced !
+fi
