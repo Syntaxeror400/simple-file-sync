@@ -176,7 +176,7 @@ then
 		echo "Already up to date, nothing to delete."
 	fi
 else
-	rm $FILE_DID_COPY
+	rm $FILE_DID_REMOVE
 fi
 
 
