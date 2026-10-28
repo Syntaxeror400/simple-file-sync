@@ -109,6 +109,10 @@ then
 	print_help true
 fi
 
+if [ "$QUIET" = true ] ; then
+	VERBOSE=false		# Force verbose to false if quiet
+fi
+
 if [ -d "$1" ]
 then
 	if [ "$QUIET" = false ] ; then
@@ -163,23 +167,22 @@ if [ "$QUIET" = false ] ; then
 	esac
 fi
 
-####
-# Function to count files in the source dir
-# can be used to implement progress display
-#find -L "$SOURCE_DIR" -type f -printf x | wc -c
-####
-
+NB_FILES=$(find -L "$SOURCE_DIR" -type f -printf x | wc -c)
+CURR_F=0
 # Copying files from source to destination
 if [ "$QUIET" = false ]; then
 	echo -e "\n"Copying missing files from $SOURCE_DIR to $DEST_DIR
 fi
 find -L $SOURCE_DIR -type f | while read SRC_F
 do
+	if [ "$VERBOSE" = false ] && [ "$QUIET" = false ] ; then
+		echo -en "\tProcessing file $CURR_F/$NB_FILES...\r"
+	fi
 	DEST_F=${DEST_DIR}${SRC_F:${#SOURCE_DIR}}
 	if [ ! -f "$DEST_F" ]
 	then
 		if [ "$VERBOSE" = true ] ; then
-			echo -e "\t""$SRC_F" '>>>' "$DEST_F"
+			echo -e "\t($CURR_F/$NB_FILES) $SRC_F >>> $DEST_F"
 		fi
 		if [ "$DRY_RUN" = false ]; then
 			mkdir -p "$(dirname "$DEST_F")"
@@ -199,7 +202,7 @@ do
 			fi
 
 			if [ "$VERBOSE" = true ] ; then
-				echo -e "\t""$SRC_F" '->-' "$DEST_F"
+				echo -e "\t($CURR_F/$NB_FILES) $SRC_F ->- $DEST_F"
 			fi
 			if [ "$DRY_RUN" = false ]; then
 				cp -L "$SRC_F" "$DEST_F"
@@ -207,7 +210,11 @@ do
 			touch $FILE_DID_COPY
 		fi
 	fi
+	((CURR_F++))
 done
+if [ "$VERBOSE" = false ] && [ "$QUIET" = false ] ; then
+	echo -e "\tDone.                              "
+fi
 if [ ! -f $FILE_DID_COPY ]
 then
 	if [ "$QUIET" = false ] ; then
@@ -218,23 +225,31 @@ else
 fi
 
 # Removing files that are not in the source
+CURR_F=0
 if [ "$QUIET" = false ] ; then
 	echo -e "\n"Removing files that are only in $DEST_DIR
 fi
 find $DEST_DIR -type f | while read DEST_F
 do
+	if [ "$VERBOSE" = false ] && [ "$QUIET" = false ] ; then
+		echo -en "\tProcessing file $CURR_F/$NB_FILES...\r"
+	fi
 	SRC_F=${SOURCE_DIR}${DEST_F:${#DEST_DIR}}
 	if [ ! -f "$SRC_F" ]
 	then
 		if [ "$VERBOSE" = true ] ; then
-			echo -e "\t"- "$DEST_F"
+			echo -e "\t($CURR_F/$NB_FILES) - $DEST_F"
 		fi
 		if [ "$DRY_RUN" = false ]; then
 			rm "$DEST_F"
 		fi
 		touch $FILE_DID_REMOVE
 	fi
+	((CURR_F++))
 done
+if [ "$VERBOSE" = false ] && [ "$QUIET" = false ] ; then
+	echo -e "\tDone.                              "
+fi
 if [ ! -f $FILE_DID_REMOVE ]
 then
 	if [ "$QUIET" = false ] ; then
