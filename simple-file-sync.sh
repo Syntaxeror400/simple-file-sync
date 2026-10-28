@@ -1,48 +1,74 @@
 #! /bin/bash
 
 ################################################################################
-# Function to print help text
-help_text() {
-	echo "Usage: simple-file-sync [options] <source> <destination>"
-	echo "Use simple-file-sync -h for a list of options"
-}
-
-print_help() {
-	help_text
-	exit 1
-}
-
-print_options() {
-	help_text
-	echo -e "\n"Options:
-	echo -e "\t -q/--quiet Removes all text output from this script (auto-accepts synchronization)"
-	echo -e "\t -v/--verbose Prints more information while copying and delete files"
-	echo -e "\t -h/--help Print this message"
-	exit 0
-}
-
 # Defining filenames to flag wheter we did someting
-FILE_DID_COPY=".simple-file-sync-copied-file"
-FILE_DID_REMOVE=".simple-file-sync-removed-file"
+FILE_DID_COPY=.simple-file-sync-copied-file
+FILE_DID_REMOVE=.simple-file-sync-removed-file
+PLAYCOUNT_FILE=simple-file-sync-dest-playcounts
+
+SHORT_ARGS="h"
+LONG_ARGS="help"
+# Options that will be set by arguments
+SHORT_ARGS=${SHORT_ARGS}v
+LONG_ARGS=${LONG_ARGS},verbose
+VERBOSE=false
+LONG_ARGS=${LONG_ARGS},quiet
+SHORT_ARGS=${SHORT_ARGS}q
+QUIET=false
+LONG_ARGS=${LONG_ARGS},dry-run
+DRY_RUN=false
+LONG_ARGS=${LONG_ARGS},diff
+DIFF_FILES=false
+LONG_ARGS=${LONG_ARGS},bckp-playcount
+BCKP_PLAYCOUNT=false
+
+# Function to print help text
+print_help() {
+	if [ $# -ge 1 ]
+	then
+		SHORT=$1
+	else
+		SHORT=true
+	fi
+
+	if [ "$SHORT" = false ] || [ "$QUIET" = false ]
+	then
+		echo "Usage: simple-file-sync [options] <source> <destination>"
+		echo "Use simple-file-sync -h for a list of options"
+	fi
+
+	if [ "$SHORT" = true ]
+	then
+		exit 1
+	else
+		echo -e "\n"Options:
+		echo -e "\t-q/--quiet \t Removes all text output from this script (auto-accepts synchronization)"
+		echo -e "\t-v/--verbose \t Prints more information while copying and delete files"
+		echo ""
+		echo -e "\t--dry-run \t Run through all the program but do not copy or delete any file"
+		echo -e "\t--diff \t\t Diff files that have matching name and overwirte them if different"
+		echo -e "\t--bckp-playcount \t When '--diff' is used, writes the value of the EXIF FMPS_PLAYCOUNT tag to a file before updating a file"
+		echo ""
+		echo -e "\t-h/--help \t Print this message"
+		exit 0
+	fi
+}
 
 ################################################################################
 # Option parsing
-OPTS=$(getopt -o hvq --long help,verbose,quiet -n'simple-file-sync' -- "$@")
+OPTS=$(getopt -o $SHORT_ARGS --long $LONG_ARGS -n'simple-file-sync' -- "$@")
 if [ $? -ne 0 ]
 then
   echo "Failed to parse arguments" >&2
   exit 1
 fi
 
-VERBOSE=false
-QUIET=false
-
 eval set -- "$OPTS"
 while true
 do
 	case "$1" in
 	-h | --help)
-		print_options
+		print_help false
 		;;
 	-v | --verbose)
 		VERBOSE=true
@@ -50,6 +76,18 @@ do
 		;;
 	-q | --quiet)
 		QUIET=true
+		shift
+		;;
+	--dry-run)
+		DRY_RUN=true
+		shift
+		;;
+	--diff)
+		DIFF_FILES=true
+		shift
+		;;
+	--bckp-playcount)
+		BCKP_PLAYCOUNT=true
 		shift
 		;;
 	--)
@@ -65,16 +103,13 @@ do
 	esac
 done
 
+# Getting the folders names
 if [ $# -ne 2 ]
 then
-	if [ "$QUIET" = false ] ; then
-		print_help
-	else
-		exit 1
-	fi
+	print_help true
 fi
 
-if [ -d $1 ]
+if [ -d "$1" ]
 then
 	if [ "$QUIET" = false ] ; then
 		echo Setting $1 as source directory.
@@ -93,7 +128,7 @@ else
 	fi
 fi
 
-if [ -d $2 ]
+if [ -d "$2" ]
 then
 	if [ "$QUIET" = false ] ; then
 		echo Setting $2 as destination directory.
@@ -128,11 +163,17 @@ if [ "$QUIET" = false ] ; then
 	esac
 fi
 
+####
+# Function to count files in the source dir
+# can be used to implement progress display
+#find -L "$SOURCE_DIR" -type f -printf x | wc -c
+####
+
 # Copying files from source to destination
 if [ "$QUIET" = false ]; then
 	echo -e "\n"Copying missing files from $SOURCE_DIR to $DEST_DIR
 fi
-find $SOURCE_DIR -type f | while read SRC_F
+find -L $SOURCE_DIR -type f | while read SRC_F
 do
 	DEST_F=${DEST_DIR}${SRC_F:${#SOURCE_DIR}}
 	if [ ! -f "$DEST_F" ]
@@ -140,9 +181,31 @@ do
 		if [ "$VERBOSE" = true ] ; then
 			echo -e "\t""$SRC_F" '>>>' "$DEST_F"
 		fi
-		mkdir -p "$(dirname "$DEST_F")"
-		cp "$SRC_F" "$DEST_F"
+		if [ "$DRY_RUN" = false ]; then
+			mkdir -p "$(dirname "$DEST_F")"
+			cp -L "$SRC_F" "$DEST_F"
+		fi
 		touch $FILE_DID_COPY
+	elif [ "$DIFF_FILES" = true ]
+	then
+		if ! cmp -s "$SRC_F" "$DEST_F"
+		then
+			if [ "$BCKP_PLAYCOUNT" = true ]
+			then
+				PLAYCOUNT=$(exiftool -s3 -FMPS_PLAYCOUNT "$DEST_F")
+				if [ ! -z "$PLAYCOUNT"]; then
+					echo ${SRC_F:${#SOURCE_DIR}} : $PLAYCOUNT >> $PLAYCOUNT_FILE
+				fi
+			fi
+
+			if [ "$VERBOSE" = true ] ; then
+				echo -e "\t""$SRC_F" '->-' "$DEST_F"
+			fi
+			if [ "$DRY_RUN" = false ]; then
+				cp -L "$SRC_F" "$DEST_F"
+			fi
+			touch $FILE_DID_COPY
+		fi
 	fi
 done
 if [ ! -f $FILE_DID_COPY ]
@@ -166,7 +229,9 @@ do
 		if [ "$VERBOSE" = true ] ; then
 			echo -e "\t"- "$DEST_F"
 		fi
-		rm "$DEST_F"
+		if [ "$DRY_RUN" = false ]; then
+			rm "$DEST_F"
+		fi
 		touch $FILE_DID_REMOVE
 	fi
 done
@@ -184,7 +249,9 @@ fi
 if [ "$QUIET" = false ] ; then
 	echo -e "\n"Cleaning empty directories in $DEST_DIR
 fi
-find $DEST_DIR/* -type d -empty -delete
+if [ "$DRY_RUN" = false ]; then
+	find $DEST_DIR/* -type d -empty -delete
+fi
 
 if [ "$QUIET" = false ] ; then
 	echo -e "\n"All done, files are now synced !
